@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid
 } from "recharts";
 import { 
-  User, Trophy, Award, Flame, BrainCircuit, Target, Sparkles, Terminal, AlertCircle, ExternalLink
+  User, Trophy, Award, Flame, BrainCircuit, Target, Sparkles, Terminal, AlertCircle, ExternalLink, CalendarDays
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -16,7 +16,8 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [aiAdvice, setAiAdvice] = useState<string>("");
-  const [practicePlan, setPracticePlan] = useState<any[]>([]); // New State for Recommended Problems
+  const [practicePlan, setPracticePlan] = useState<any[]>([]); 
+  const [heatmapData, setHeatmapData] = useState<any[]>([]); // New Heatmap State
 
   const fetchDashboardData = async () => {
     if (!handle.trim()) return;
@@ -26,6 +27,7 @@ export default function Dashboard() {
     setStats(null);
     setAiAdvice("");
     setPracticePlan([]);
+    setHeatmapData([]);
 
     try {
       // 1. Fetch User Profile
@@ -50,8 +52,10 @@ export default function Dashboard() {
       const solvedSubmissions = submissions.filter((sub: any) => sub.verdict === "OK");
       const uniqueProblems = new Set<string>();
       const tagCounts: { [key: string]: number } = {};
+      const dailyActivity: { [key: string]: number } = {}; // Track accepted count per day
 
       solvedSubmissions.forEach((sub: any) => {
+        // Build Profile Analytics
         const pId = `${sub.problem.contestId}-${sub.problem.index}`;
         if (!uniqueProblems.has(pId)) {
           uniqueProblems.add(pId);
@@ -59,7 +63,33 @@ export default function Dashboard() {
             tagCounts[tag] = (tagCounts[tag] || 0) + 1;
           });
         }
+
+        // Build Consistency Heatmap Data
+        if (sub.creationTimeSeconds) {
+          const dateObj = new Date(sub.creationTimeSeconds * 1000);
+          const dateStr = dateObj.toISOString().split("T")[0]; // Generates YYYY-MM-DD
+          dailyActivity[dateStr] = (dailyActivity[dateStr] || 0) + 1;
+        }
       });
+
+      // Assemble flat timeline grid for the past 22 weeks (154 days) aligned to full columns
+      const today = new Date();
+      const totalDaysToShow = 22 * 7; 
+      const startTimelineDate = new Date();
+      startTimelineDate.setDate(today.getDate() - totalDaysToShow + 1);
+
+      const generatedGrid = [];
+      for (let i = 0; i < totalDaysToShow; i++) {
+        const loopDate = new Date(startTimelineDate);
+        loopDate.setDate(startTimelineDate.getDate() + i);
+        const loopDateStr = loopDate.toISOString().split("T")[0];
+
+        generatedGrid.push({
+          date: loopDateStr,
+          count: dailyActivity[loopDateStr] || 0
+        });
+      }
+      setHeatmapData(generatedGrid);
 
       const processedChartData = Object.keys(tagCounts).map(tag => ({
         name: tag,
@@ -83,7 +113,7 @@ export default function Dashboard() {
       setProfile(activeProfile);
       setStats(activeStats);
 
-      // 3. NEW FEATURE: Fetch Targeted Practice Problems
+      // 3. Fetch Targeted Practice Problems
       try {
         const probsRes = await fetch("https://codeforces.com/api/problemset.problems");
         const probsData = await probsRes.json();
@@ -91,19 +121,18 @@ export default function Dashboard() {
         if (probsData.status === "OK") {
           const currentRating = userProfile.rating || 800; 
           const targetMin = currentRating;
-          const targetMax = currentRating + 200; // Pushing slightly above current rating
+          const targetMax = currentRating + 200;
 
           const filtered = probsData.result.problems.filter((p: any) =>
             p.rating && p.rating >= targetMin && p.rating <= targetMax &&
-            !uniqueProblems.has(`${p.contestId}-${p.index}`) // Ensure it's unsolved
+            !uniqueProblems.has(`${p.contestId}-${p.index}`)
           );
 
-          // Shuffle the array to get 3 random fresh problems
           const selected = filtered.sort(() => 0.5 - Math.random()).slice(0, 3);
           setPracticePlan(selected);
         }
       } catch (probError) {
-        console.error("Non-fatal: Could not load practice plan.", probError);
+        console.error("Could not complete practice recommendation calculation", probError);
       }
 
       // 4. Fetch AI Advice
@@ -123,8 +152,7 @@ export default function Dashboard() {
           setAiAdvice("AI Error: " + (mentorData.error || "Unknown backend error."));
         }
       } catch (parseError) {
-        console.error("Server crashed. Raw response:", rawText);
-        setAiAdvice(`Backend crashed! The server said: ${rawText.substring(0, 100)}... Check your VS Code terminal for the full red error log.`);
+        setAiAdvice(`Backend context error parsing response node.`);
       }
 
     } catch (err: any) {
@@ -145,6 +173,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex-1 flex flex-col bg-[#f8fafc]">
+      {/* Search Header */}
       <div className="bg-white border-b border-slate-200/80 px-10 py-5 flex flex-col sm:flex-row items-sm items-center justify-between gap-4 sticky top-0 z-20 shadow-sm/5">
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
@@ -211,16 +240,13 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-3 gap-8">
-                <div className="col-span-2 bg-white border p-6 rounded-3xl h-64"><div className="w-full h-full bg-slate-50 border border-dashed rounded-xl" /></div>
-                <div className="bg-slate-950 p-6 rounded-3xl h-64" />
-              </div>
             </div>
           </div>
         )}
 
         {profile && !loading && (
           <>
+            {/* Top Scoreboards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center gap-4 transition hover:shadow-md">
                 <img src={profile.avatar} alt="avatar" className="w-12 h-12 rounded-xl border object-cover bg-slate-50 shadow-sm shrink-0" />
@@ -249,7 +275,7 @@ export default function Dashboard() {
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center gap-4 transition hover:shadow-md">
-                <div className="p-3 bg-emerald-50 border border-emerald-100/70 text-emerald-600 rounded-xl"><Flame className="w-5 h-5" /></div>
+                <div className="p-3 bg-emerald-50 border border-emerald-100/70 rounded-xl text-xl">🔥</div>
                 <div>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Problems Solved</p>
                   <p className="text-xl font-black text-slate-900 mt-0.5">{stats.totalSolved}</p>
@@ -257,6 +283,52 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Consistency Heatmap Card */}
+            {heatmapData.length > 0 && (
+              <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="p-2 bg-slate-50 border rounded-lg text-slate-700">
+                    <CalendarDays className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Submission Velocity Map 🔥</h3>
+                    <p className="text-slate-400 text-[11px] font-medium mt-0.5">Chronological tracking matrix mapping volume over the past 22 weeks</p>
+                  </div>
+                </div>
+
+                <div className="w-full overflow-x-auto pb-2 scrollbar-thin">
+                  <div className="grid grid-flow-col grid-rows-7 gap-1 min-w-[640px] max-w-full justify-start p-1">
+                    {heatmapData.map((day, idx) => {
+                      let colorClass = "bg-slate-100"; // 0 solved
+                      if (day.count === 1) colorClass = "bg-emerald-200";
+                      else if (day.count === 2) colorClass = "bg-emerald-300";
+                      else if (day.count === 3) colorClass = "bg-emerald-500";
+                      else if (day.count > 3) colorClass = "bg-emerald-700";
+
+                      return (
+                        <div 
+                          key={idx}
+                          className={`w-[13px] h-[13px] rounded-[3px] ${colorClass} transition-all duration-150 border border-black/[0.02] hover:scale-115 hover:z-10 cursor-help`}
+                          title={`${day.date} • ${day.count} accepted submission${day.count !== 1 ? 's' : ''}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-1.5 text-[10px] font-bold text-slate-400 mt-3 border-t border-slate-50 pt-3">
+                  <span>Less</span>
+                  <div className="w-2.5 h-2.5 rounded-[2px] bg-slate-100" />
+                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-200" />
+                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-300" />
+                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-500" />
+                  <div className="w-2.5 h-2.5 rounded-[2px] bg-emerald-700" />
+                  <span>More</span>
+                </div>
+              </div>
+            )}
+
+            {/* Recharts Analytics Distribution Map & Architecture Info */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
               <div className="lg:col-span-2 bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
                 <div className="mb-6">
