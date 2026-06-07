@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid
 } from "recharts";
 import { 
-  User, Trophy, Award, Flame, BrainCircuit, Target, Sparkles, Terminal, AlertCircle
+  User, Trophy, Award, Flame, BrainCircuit, Target, Sparkles, Terminal, AlertCircle, ExternalLink
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [aiAdvice, setAiAdvice] = useState<string>("");
+  const [practicePlan, setPracticePlan] = useState<any[]>([]); // New State for Recommended Problems
 
   const fetchDashboardData = async () => {
     if (!handle.trim()) return;
@@ -24,8 +25,10 @@ export default function Dashboard() {
     setProfile(null);
     setStats(null);
     setAiAdvice("");
+    setPracticePlan([]);
 
     try {
+      // 1. Fetch User Profile
       const userRes = await fetch(`https://codeforces.com/api/user.info?handles=${handle}`);
       const userData = await userRes.json();
       
@@ -35,6 +38,7 @@ export default function Dashboard() {
       
       const userProfile = userData.result[0];
 
+      // 2. Fetch User Submissions
       const statusRes = await fetch(`https://codeforces.com/api/user.status?handle=${handle}`);
       const statusData = await statusRes.json();
       
@@ -79,6 +83,30 @@ export default function Dashboard() {
       setProfile(activeProfile);
       setStats(activeStats);
 
+      // 3. NEW FEATURE: Fetch Targeted Practice Problems
+      try {
+        const probsRes = await fetch("https://codeforces.com/api/problemset.problems");
+        const probsData = await probsRes.json();
+        
+        if (probsData.status === "OK") {
+          const currentRating = userProfile.rating || 800; 
+          const targetMin = currentRating;
+          const targetMax = currentRating + 200; // Pushing slightly above current rating
+
+          const filtered = probsData.result.problems.filter((p: any) =>
+            p.rating && p.rating >= targetMin && p.rating <= targetMax &&
+            !uniqueProblems.has(`${p.contestId}-${p.index}`) // Ensure it's unsolved
+          );
+
+          // Shuffle the array to get 3 random fresh problems
+          const selected = filtered.sort(() => 0.5 - Math.random()).slice(0, 3);
+          setPracticePlan(selected);
+        }
+      } catch (probError) {
+        console.error("Non-fatal: Could not load practice plan.", probError);
+      }
+
+      // 4. Fetch AI Advice
       const mentorRes = await fetch("/api/mentor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -272,6 +300,50 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Targeted Practice Plan Section */}
+            {practicePlan.length > 0 && (
+              <div className="bg-white p-6 md:p-8 rounded-3xl border border-emerald-100/70 shadow-md shadow-emerald-100/10 animate-fade-in">
+                <div className="flex items-center gap-3.5 mb-6 border-b border-slate-100 pb-5">
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl">
+                    <Target className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Targeted Practice Plan</h3>
+                    <p className="text-slate-400 text-xs font-medium mt-0.5">Unsolved problems mathematically filtered for your current rating bracket (+0 to +200)</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  {practicePlan.map((prob, i) => (
+                    <a
+                      key={i}
+                      href={`https://codeforces.com/problemset/problem/${prob.contestId}/${prob.index}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex flex-col justify-between p-5 rounded-2xl border border-slate-200/80 bg-slate-50 hover:bg-emerald-50/50 hover:border-emerald-200 transition-all group shadow-sm hover:shadow-md"
+                    >
+                      <div>
+                        <div className="flex justify-between items-start mb-3">
+                          <span className="text-[11px] font-bold px-2.5 py-1 bg-emerald-100/60 text-emerald-700 rounded-md">
+                            {prob.rating} Rating
+                          </span>
+                          <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                        </div>
+                        <h4 className="font-bold text-sm text-slate-900 line-clamp-2 leading-snug mb-3">{prob.name}</h4>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {prob.tags.slice(0, 3).map((tag: string, idx: number) => (
+                          <span key={idx} className="text-[10px] font-semibold text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded-sm">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI Evaluation Block */}
             {aiAdvice && (
               <div className="bg-white p-6 md:p-8 rounded-3xl border border-indigo-100/70 shadow-md shadow-indigo-100/10 animate-fade-in">
                 <div className="flex items-center gap-3.5 mb-6 border-b border-slate-100 pb-5">
@@ -280,7 +352,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-slate-900">AI Coach Evaluation</h3>
-                    <p className="text-slate-400 text-xs font-medium mt-0.5">Strategic growth path calculated dynamically via Gemini</p>
+                    <p className="text-slate-400 text-xs font-medium mt-0.5">Strategic growth path calculated dynamically via Gemini 2.5 Flash</p>
                   </div>
                 </div>
                 
